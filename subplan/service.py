@@ -50,6 +50,9 @@ def refresh(blocking=False):
         if not acquired:
             return read_json(state / "usage.json", {"providers": {}})
         config = load_config()
+        if any(config[name].get("enabled", True) for name in PROVIDERS):
+            from .network import inherit_shell_proxy
+            inherit_shell_proxy()
         previous = read_json(state / "usage.json", {})
         snapshot = collect(config, previous.get("providers", {}))
         atomic_json(state / "usage.json", snapshot)

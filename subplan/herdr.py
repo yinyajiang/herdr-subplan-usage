@@ -66,6 +66,8 @@ def enabled():
 
 
 def start():
+    from .network import inherit_shell_proxy
+    inherit_shell_proxy()
     session = session_dir()
     session.mkdir(parents=True, exist_ok=True, mode=0o700)
     stop_file = session / "stop"

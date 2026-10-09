@@ -1,14 +1,18 @@
 import base64
 from contextlib import closing
 import json
+import os
 from pathlib import Path
 import sqlite3
 import tempfile
 import time
 import unittest
+from unittest.mock import patch
 
 from subplan.model import UsageError, timestamp, window
-from subplan.providers import cursor_cookie, parse_codex, parse_cursor, parse_kimi, parse_zhipu
+from subplan.providers import (codex_error_message, cursor_cli_auth_path, cursor_cli_cookie,
+                               cursor_cookie, cursor_login_cookie, parse_codex, parse_cursor,
+                               parse_kimi, parse_zhipu)
 
 
 class ProviderTests(unittest.TestCase):
@@ -139,6 +143,59 @@ class ProviderTests(unittest.TestCase):
                 database.commit()
             with self.assertRaisesRegex(UsageError, "过期"):
                 cursor_cookie(path)
+
+    def test_cursor_cli_credentials_are_read_only_and_not_logged(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "auth.json"
+            payload = base64.urlsafe_b64encode(json.dumps({"sub": "auth0|user_123", "exp": time.time() + 3600}).encode()).decode().rstrip("=")
+            token = "h." + payload + ".s"
+            original = json.dumps({"accessToken": token, "refreshToken": "private-refresh"})
+            path.write_text(original)
+            self.assertTrue(cursor_cli_cookie(path).startswith("WorkosCursorSessionToken=user_123%3A%3A"))
+            self.assertEqual(path.read_text(), original)
+            for data in ({"accessToken": "private-bad-token"}, {}, [], {"accessToken": "h.eyJzdWIiOiJ1IiwiZXhwIjoxfQ.s"}):
+                path.write_text(json.dumps(data))
+                with self.assertRaises(UsageError) as error:
+                    cursor_cli_cookie(path)
+                self.assertNotIn("private", str(error.exception))
+            self.assertIn("agent login", str(error.exception))
+
+    def test_cursor_auto_detects_cli_and_explicit_paths_do_not_switch_accounts(self):
+        with tempfile.TemporaryDirectory() as directory:
+            missing = Path(directory) / "missing.db"
+            cli = Path(directory) / "auth.json"
+            cli.touch()
+            with patch("subplan.providers.cursor_db_path", return_value=missing), patch("subplan.providers.cursor_cli_auth_path", return_value=cli), patch("subplan.providers.cursor_cli_cookie", return_value="cli-cookie") as read_cli:
+                self.assertEqual(cursor_login_cookie({}), "cli-cookie")
+                read_cli.assert_called_once_with(cli)
+                read_cli.reset_mock()
+                with self.assertRaises(UsageError):
+                    cursor_login_cookie({"database_path": str(missing)})
+                read_cli.assert_not_called()
+
+    def test_cursor_desktop_precedes_cli_and_invalid_desktop_falls_back(self):
+        with tempfile.TemporaryDirectory() as directory:
+            database, cli = Path(directory) / "state.vscdb", Path(directory) / "auth.json"
+            database.touch(); cli.touch()
+            with patch("subplan.providers.cursor_db_path", return_value=database), patch("subplan.providers.cursor_cli_auth_path", return_value=cli), patch("subplan.providers.cursor_cookie", return_value="desktop-cookie") as read_db, patch("subplan.providers.cursor_cli_cookie", return_value="cli-cookie") as read_cli:
+                self.assertEqual(cursor_login_cookie({}), "desktop-cookie")
+                read_cli.assert_not_called()
+                read_db.side_effect = UsageError("过期")
+                self.assertEqual(cursor_login_cookie({}), "cli-cookie")
+                self.assertEqual(cursor_login_cookie({"cli_auth_path": str(cli)}), "cli-cookie")
+
+    def test_cursor_cli_paths_match_agent_platform_storage(self):
+        with patch("subplan.providers.Path.home", return_value=Path("/users/test")), patch.dict(os.environ, {"XDG_CONFIG_HOME": "/custom-config", "APPDATA": "/roaming"}):
+            for platform, expected in (("linux", "/custom-config/cursor/auth.json"), ("darwin", "/users/test/.cursor/auth.json"), ("win32", "/roaming/Cursor/auth.json")):
+                with patch("subplan.providers.sys.platform", platform):
+                    self.assertEqual(cursor_cli_auth_path(), Path(expected))
+
+    def test_codex_errors_distinguish_network_denial_from_login_without_leaking_body(self):
+        for status, expected in ((403, "403"), (401, "登录失效"), (429, "限流")):
+            message = codex_error_message({"message": f"GET failed: {status}; body=private-token"})
+            self.assertIn(expected, message)
+            self.assertNotIn("private-token", message)
+        self.assertNotIn("无订阅", codex_error_message({"message": "unexpected failure"}))
 
 
 if __name__ == "__main__":

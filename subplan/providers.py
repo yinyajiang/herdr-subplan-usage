@@ -163,7 +163,7 @@ def codex_usage(command, timeout):
                 raise UsageError("Codex 查询进程已退出")
             if isinstance(message, dict) and message.get("id") == request_id:
                 if message.get("error"):
-                    raise UsageError("Codex 无订阅用量，请检查 ChatGPT 登录")
+                    raise UsageError(codex_error_message(message["error"]))
                 return message.get("result", {})
             if time.monotonic() >= deadline:
                 raise UsageError("Codex 用量查询超时")
@@ -190,6 +190,18 @@ def codex_usage(command, timeout):
         proc.stdout.close()
 
 
+def codex_error_message(error):
+    # Classify the CLI error without exposing its HTTP body, tokens or account.
+    message = str(error.get("message", "")) if isinstance(error, dict) else ""
+    if re.search(r"\b403\b", message):
+        return "Codex HTTP 403 · 检查网络/代理"
+    if re.search(r"\b401\b", message):
+        return "Codex 登录失效，请重新登录"
+    if re.search(r"\b429\b", message):
+        return "Codex 查询限流，稍后重试"
+    return "Codex 用量查询失败，请检查 CLI 登录或网络"
+
+
 def cursor_db_path():
     home = Path.home()
     if sys.platform == "darwin":
@@ -199,6 +211,69 @@ def cursor_db_path():
     else:
         base = Path(os.environ.get("XDG_CONFIG_HOME", home / ".config"))
     return base / "Cursor/User/globalStorage/state.vscdb"
+
+
+def cursor_cli_auth_path():
+    home = Path.home()
+    if sys.platform == "darwin":
+        return home / ".cursor/auth.json"
+    if sys.platform == "win32":
+        return Path(os.environ.get("APPDATA", home / "AppData/Roaming")) / "Cursor/auth.json"
+    return Path(os.environ.get("XDG_CONFIG_HOME", home / ".config")) / "cursor/auth.json"
+
+
+def cursor_token_cookie(token, login_hint="请打开 Cursor 刷新登录"):
+    try:
+        if not isinstance(token, str) or not token:
+            raise UsageError("Cursor 登录配置中没有访问令牌")
+        parts = token.split(".")
+        payload = json.loads(base64.urlsafe_b64decode(parts[1] + "=" * (-len(parts[1]) % 4)))
+        subject = payload.get("sub", "").split("|")[-1]
+        if not re.fullmatch(r"[A-Za-z0-9._-]+", subject):
+            raise UsageError("Cursor 登录配置格式已变化")
+        expiration = number(payload.get("exp"))
+        if expiration is not None and expiration <= time.time():
+            raise UsageError("Cursor 登录已过期，" + login_hint)
+        return "WorkosCursorSessionToken=" + quote(subject + "::" + token, safe="")
+    except (ValueError, IndexError, TypeError, AttributeError):
+        raise UsageError("Cursor 登录配置格式已变化") from None
+
+
+def cursor_cli_cookie(path):
+    try:
+        with Path(path).expanduser().open("r", encoding="utf-8") as source:
+            text = source.read(1_048_577)
+        if len(text) > 1_048_576:
+            raise UsageError("Cursor CLI 登录配置过大")
+        data = json.loads(text)
+        if not isinstance(data, dict):
+            raise UsageError("Cursor CLI 登录配置格式已变化")
+        return cursor_token_cookie(data.get("accessToken"), "请运行 agent login")
+    except OSError:
+        raise UsageError("无法读取 Cursor CLI 登录配置") from None
+    except (ValueError, UnicodeError):
+        raise UsageError("Cursor CLI 登录配置格式已变化") from None
+
+
+def cursor_login_cookie(settings):
+    # Explicit paths select one account; never silently switch to another login.
+    if settings.get("database_path"):
+        return cursor_cookie(settings["database_path"])
+    if settings.get("cli_auth_path"):
+        return cursor_cli_cookie(settings["cli_auth_path"])
+    error = None
+    database = cursor_db_path()
+    if database.is_file():
+        try:
+            return cursor_cookie(database)
+        except UsageError as failed:
+            error = failed
+    cli_auth = cursor_cli_auth_path()
+    if cli_auth.is_file():
+        return cursor_cli_cookie(cli_auth)
+    if error:
+        raise error
+    raise UsageError("未找到 Cursor 登录，请登录客户端或 Agent CLI")
 
 
 def cursor_cookie(path):
@@ -211,16 +286,7 @@ def cursor_cookie(path):
                                    ("cursorAuth/accessToken",)).fetchone()
         if not row or not row[0]:
             raise UsageError("请先在 Cursor 中登录")
-        token = row[0]
-        parts = token.split(".")
-        payload = json.loads(base64.urlsafe_b64decode(parts[1] + "=" * (-len(parts[1]) % 4)))
-        subject = payload.get("sub", "").split("|")[-1]
-        if not re.fullmatch(r"[A-Za-z0-9._-]+", subject):
-            raise UsageError("Cursor 登录配置格式已变化")
-        expiration = number(payload.get("exp"))
-        if expiration is not None and expiration <= time.time():
-            raise UsageError("Cursor 登录已过期，请打开 Cursor 刷新登录")
-        return "WorkosCursorSessionToken=" + quote(subject + "::" + token, safe="")
+        return cursor_token_cookie(row[0])
     except (sqlite3.Error, OSError):
         raise UsageError("无法读取 Cursor 登录数据库") from None
     except (ValueError, IndexError, TypeError, AttributeError):
@@ -253,7 +319,7 @@ def fetch(provider, settings, timeout):
     if provider == "codex":
         return codex_usage(settings.get("command") or "codex", timeout)
     if provider == "cursor":
-        cookie = cursor_cookie(settings.get("database_path") or cursor_db_path())
+        cookie = cursor_login_cookie(settings)
         return parse_cursor(get_json(CURSOR_URL, {"Cookie": cookie}, timeout))
     key = settings.get("api_key") or os.environ.get({"zhipu": "ZHIPU_API_KEY", "kimi": "KIMI_API_KEY"}[provider])
     if not isinstance(key, str) or not key.strip():

@@ -7,7 +7,7 @@ Herdr 0.9+ 的常驻订阅用量窗格，Python 3.10+，无第三方依赖，无
 | Zhipu CN | Coding Plan API Key | 5 小时、7 天剩余百分比及各自重置时间 |
 | Kimi CN | Coding Plan API Key | 5 小时、7 天剩余百分比及各自重置时间 |
 | Codex | 当前本机 Codex CLI 登录 | 5 小时、7 天剩余百分比及各自重置时间 |
-| Cursor | 当前本机 Cursor 客户端登录 | `30d` 月度剩余、`api` 剩余百分比、下次重置时间 |
+| Cursor | 当前本机 Cursor 客户端或 Agent CLI 登录 | `30d` 月度剩余、`api` 剩余百分比、下次重置时间 |
 
 ## 显示位置
 
@@ -41,7 +41,7 @@ herdr plugin action invoke herdr-subplan-usage.show
 
 安装时按提示确认即可；无人值守安装可给第一条命令加 `--yes`。无需编译插件或修改 Herdr 源码。
 
-首次使用点击窗格中的 **设置**，输入 Zhipu / Kimi 的 Coding Plan Key 并保存。Codex 必须在这台设备的 Codex CLI 中登录订阅账号，Cursor 必须在这台设备的客户端中登录。登录和 Key 配置不会随 GitHub 安装自动同步；不使用的提供方可在配置中设为禁用。
+首次使用点击窗格中的 **设置**，输入 Zhipu / Kimi 的 Coding Plan Key 并保存。Codex 必须在这台设备的 Codex CLI 中登录订阅账号，Cursor 可在这台设备的客户端中登录，也可运行 `agent login` 登录。登录和 Key 配置不会随 GitHub 安装自动同步；不使用的提供方可在配置中设为禁用。
 
 如需 `prefix+u` 显示 / 展开用量，在这台设备的 Herdr `config.toml` 中添加以下条目（已有同一快捷键时先调整原条目）：
 
@@ -108,13 +108,21 @@ herdr plugin action invoke herdr-subplan-usage.stop
 
 Codex 使用本机 `codex app-server` 的 `account/rateLimits/read`，凭据读取和续期由 Codex 自身完成，沿用 `CODEX_HOME`。`codex.command` 可指定 CLI 的绝对路径。CLI 必须对应要查询的登录配置；API Key 登录没有 ChatGPT 订阅额度。窗口按实际时长识别，不把 Spark 等模型专属额度误当订阅总额度。
 
-Cursor 只读 `cursorAuth/accessToken`：
+Cursor 优先只读客户端数据库中的 `cursorAuth/accessToken`：
 
 - macOS：`~/Library/Application Support/Cursor/User/globalStorage/state.vscdb`
 - Linux：`${XDG_CONFIG_HOME:-~/.config}/Cursor/User/globalStorage/state.vscdb`
 - Windows：`%APPDATA%/Cursor/User/globalStorage/state.vscdb`
 
-可用 `cursor.database_path` 指定其他路径。支持运行中的 WAL 数据，过期时请打开 Cursor 刷新登录。月度额度优先采用个人订阅池的 `totalPercentUsed`（Included 已用百分比）计算月剩余，并用 `apiPercentUsed` 单独计算 API 剩余，面板分别显示为 `30d` 和 `api`；两项均为 100% 减去对应的已用百分比，API 数据缺失时显示“—”。基础金额计数可能已经满额，但不能覆盖 Included 百分比。没有此百分比时才回退到金额比例，不包含额外按量付费，也不把团队共享池当个人额度。
+没有可用客户端登录时，自动读取 `agent login` 保存的 `accessToken`，支持仅安装 CLI 的 SSH / WSL 设备：
+
+- macOS：`~/.cursor/auth.json`
+- Linux / WSL：`${XDG_CONFIG_HOME:-~/.config}/cursor/auth.json`
+- Windows：`%APPDATA%/Cursor/auth.json`
+
+可用 `cursor.database_path` 指定客户端数据库，或用 `cursor.cli_auth_path` 指定 CLI 凭据文件。显式指定路径后仅使用该登录，不自动切换账号。支持运行中的 WAL 数据；客户端登录过期时请打开 Cursor 刷新，CLI 登录过期时运行 `agent login`。插件只读凭据，不保存或更新登录 Token。月度额度优先采用个人订阅池的 `totalPercentUsed`（Included 已用百分比）计算月剩余，并用 `apiPercentUsed` 单独计算 API 剩余，面板分别显示为 `30d` 和 `api`；两项均为 100% 减去对应的已用百分比，API 数据缺失时显示“—”。基础金额计数可能已经满额，但不能覆盖 Included 百分比。没有此百分比时才回退到金额比例，不包含额外按量付费，也不把团队共享池当个人额度。
+
+若 Codex CLI 已登录但显示 `HTTP 403`，表示用量接口拒绝当前请求，不代表没有订阅。请检查该设备到 `chatgpt.com` 的网络及代理。插件优先使用 Herdr 进程继承的代理环境；Linux / WSL 后台进程没有代理变量时，会从当前用户的交互式 Shell 环境补读 `HTTP_PROXY` / `HTTPS_PROXY` / `ALL_PROXY` 及其小写形式，并沿用 `NO_PROXY`。不会覆盖已有代理，也不会导入其它登录或配置变量。更改代理后执行 `stop`、等待用量窗格关闭，再执行 `show` 重新读取。插件不会回显 CLI 返回的 HTTP 错误正文。
 
 配置和状态使用 Herdr 注入的 `HERDR_PLUGIN_CONFIG_DIR` / `HERDR_PLUGIN_STATE_DIR`。Unix 配置和缓存文件为 `0600`，不含密钥的示例才可放入仓库。Windows 需要 `python3` 可执行命令；如果仅安装了 `python`，请调整 manifest。
 

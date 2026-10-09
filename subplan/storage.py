@@ -49,7 +49,7 @@ def load_config():
             raise UsageError(f"{provider} 配置必须为对象")
         if not isinstance(settings.get("enabled", True), bool):
             raise UsageError(f"{provider}.enabled 必须为布尔值")
-        for key in ("api_key", "command", "database_path"):
+        for key in ("api_key", "command", "database_path", "cli_auth_path"):
             if key in settings and not isinstance(settings[key], str):
                 raise UsageError(f"{provider}.{key} 必须为字符串")
     return config
