@@ -15,6 +15,19 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 class IntegrationTests(unittest.TestCase):
+    def test_worker_pauses_while_hidden_and_resumes_when_revealed(self):
+        with tempfile.TemporaryDirectory() as directory, patch.dict(os.environ, {
+                "HERDR_SOCKET_PATH": "/fake/server.sock", "HERDR_PLUGIN_STATE_DIR": directory}):
+            states = []
+            def record(path, value):
+                if path.name == "health.json":
+                    states.append(value["status"])
+            with patch("subplan.herdr.enabled", side_effect=[True, True, True, False]), patch("subplan.herdr.load_config", return_value={"refresh_seconds": 60}), patch("subplan.herdr.cached", return_value={"queried_at": 0}), patch("subplan.herdr.refresh", return_value={}) as query, patch("subplan.dock.ensure"), patch("subplan.dock.is_visible", side_effect=[True, False, True]), patch("subplan.herdr.clear"), patch("subplan.dock.close_owned"), patch("subplan.herdr.wait_interval"), patch("subplan.herdr.atomic_json", side_effect=record):
+                watch()
+            self.assertEqual(query.call_count, 2)
+            query.assert_called_with(visible_only=True)
+            self.assertEqual(states, ["running", "idle", "running", "stopped"])
+
     def test_codex_actual_stdio_handshake_notifications_and_cleanup(self):
         with tempfile.TemporaryDirectory() as directory:
             script = Path(directory) / "fake_codex.py"

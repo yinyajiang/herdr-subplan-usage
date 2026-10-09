@@ -8,7 +8,7 @@ from unittest.mock import patch
 
 from subplan.display import percent, dock_lines, text_view
 from subplan.model import UsageError, complete
-from subplan.service import collect, failed
+from subplan.service import collect, failed, refresh
 from subplan.storage import PROVIDERS, atomic_json, load_config, lock
 
 
@@ -17,6 +17,16 @@ def config():
 
 
 class ServiceTests(unittest.TestCase):
+    def test_queued_automatic_refresh_does_not_fetch_after_pane_closes(self):
+        with tempfile.TemporaryDirectory() as directory, patch.dict(os.environ, {"HERDR_PLUGIN_STATE_DIR": directory}):
+            previous = {"queried_at": 123, "providers": {}}
+            atomic_json(Path(directory) / "usage.json", previous)
+            with patch("subplan.dock.is_visible", return_value=False), patch("subplan.service.load_config") as config_read, patch("subplan.service.collect") as fetch:
+                self.assertEqual(refresh(blocking=True, visible_only=True), previous)
+                config_read.assert_not_called()
+                fetch.assert_not_called()
+            self.assertEqual(json.loads((Path(directory) / "usage.json").read_text()), previous)
+
     def test_independent_providers_and_safe_errors(self):
         def fetch(provider, *_):
             if provider == "zhipu":

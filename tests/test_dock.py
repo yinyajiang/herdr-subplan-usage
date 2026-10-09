@@ -7,7 +7,7 @@ import unittest
 from unittest.mock import patch
 
 from subplan.display import cell_width, dock_frame, dock_lines
-from subplan.dock import close_owned, ensure, hide, pane_preferences, set_collapsed
+from subplan.dock import close_owned, ensure, hide, is_visible, pane_preferences, set_collapsed
 from subplan.herdr import session_dir
 from subplan.storage import atomic_json, read_json
 
@@ -32,6 +32,7 @@ class DockTests(unittest.TestCase):
                 self.assertEqual(args, ["plugin", "pane", "close", "w1:p2"])
                 self.assertEqual(read_json(session_dir() / "hidden.json"), {"w1:t1": True})
                 self.assertEqual(read_json(session_dir() / "docks.json"), {"w1:t2": "w1:p3"})
+                self.assertTrue((session_dir() / "wake").exists())
                 return {}
 
             with patch("subplan.dock.call", side_effect=api):
@@ -48,6 +49,27 @@ class DockTests(unittest.TestCase):
                     {"plugin_pane": {"pane": {"pane_id": "w1:p2"}}}, {}, {}]):
                 self.assertEqual(ensure(reveal=True), "w1:p2")
             self.assertEqual(read_json(session_dir() / "hidden.json"), {"w1:t2": True})
+            self.assertTrue((session_dir() / "wake").exists())
+
+    def test_only_the_current_visible_tab_enables_subscription_refresh(self):
+        with tempfile.TemporaryDirectory() as directory, patch.dict(os.environ, {
+                "HERDR_SOCKET_PATH": "/fake.sock", "HERDR_PLUGIN_STATE_DIR": directory}):
+            data = snapshot()
+            data["panes"].append({"pane_id": "w1:p2", "label": "订阅用量"})
+            atomic_json(session_dir() / "docks.json", {"w1:t1": "w1:p2"})
+            with patch("subplan.dock.snapshot", return_value=data):
+                self.assertTrue(is_visible())
+                atomic_json(session_dir() / "hidden.json", {"w1:t1": True})
+                self.assertFalse(is_visible())
+                atomic_json(session_dir() / "hidden.json", {})
+                data["focused_tab_id"] = "w1:t2"
+                self.assertFalse(is_visible())
+                data["focused_tab_id"] = "w1:t1"
+                data["layouts"][0]["zoomed"] = True
+                data["focused_pane_id"] = "w1:p1"
+                self.assertFalse(is_visible())
+                data["focused_pane_id"] = "w1:p2"
+                self.assertTrue(is_visible())
 
     def test_open_left_dock_once_without_changing_focus_or_creating_agents(self):
         with tempfile.TemporaryDirectory() as directory, patch.dict(os.environ, {

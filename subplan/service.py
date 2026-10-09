@@ -44,11 +44,17 @@ def collect(config, previous=None, fetcher=fetch, now=None):
             "providers": {entry["provider"]: entry for entry in entries}}
 
 
-def refresh(blocking=False):
+def refresh(blocking=False, visible_only=False):
     state = paths()[1]
     with lock(state / "refresh.lock", blocking=blocking) as acquired:
         if not acquired:
             return read_json(state / "usage.json", {"providers": {}})
+        if visible_only:
+            from .dock import is_visible
+            # Recheck after acquiring the shared lock: the pane may have closed
+            # while this request was waiting for another session's refresh.
+            if not is_visible():
+                return read_json(state / "usage.json", {"providers": {}})
         config = load_config()
         if any(config[name].get("enabled", True) for name in PROVIDERS):
             from .network import inherit_shell_proxy

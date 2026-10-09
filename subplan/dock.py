@@ -16,6 +16,20 @@ def owned_ids(data, saved):
             if pane in live and live[pane].get("label") in ("订阅用量", "Subscription Usage")}
 
 
+def is_visible():
+    """Only a visible usage pane in the active tab needs subscription polling."""
+    session = session_dir()
+    data = snapshot()
+    tab = data.get("focused_tab_id")
+    if read_json(session / "hidden.json", {}).get(tab):
+        return False
+    pane = owned_ids(data, read_json(session / "docks.json", {})).get(tab)
+    if not pane:
+        return False
+    layout = next((item for item in data.get("layouts", []) if item.get("tab_id") == tab), {})
+    return not layout.get("zoomed") or data.get("focused_pane_id") == pane
+
+
 def ensure(reveal=False):
     session = session_dir()
     if (session / "stop").exists():
@@ -35,6 +49,8 @@ def ensure(reveal=False):
         elif hidden.get(tab):
             return None
         if tab in saved:
+            if reveal:
+                (session / "wake").touch(mode=0o600)
             return saved[tab]
         layout = next((l for l in data.get("layouts", []) if l.get("tab_id") == tab), None)
         if not layout or layout.get("zoomed"):
@@ -60,6 +76,7 @@ def ensure(reveal=False):
         # Save immediately: retries must never open duplicates after partial failure.
         saved[tab] = pane
         atomic_json(session / "docks.json", saved)
+        (session / "wake").touch(mode=0o600)
         if below:
             call(["pane", "swap", "--source-pane", target["pane_id"], "--target-pane", pane])
             return pane
@@ -87,6 +104,7 @@ def hide(pane):
         # A pane can terminate its own process before close returns; persist all
         # state first so tab focus events and the worker cannot resurrect it.
         atomic_json(session / "docks.json", {key: value for key, value in saved.items() if key != tab})
+        (session / "wake").touch(mode=0o600)
         try:
             call(["plugin", "pane", "close", pane])
         except UsageError:

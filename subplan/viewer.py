@@ -57,7 +57,7 @@ def view(docked=False):
                 continue
             requested.clear()
             try:
-                refresh(blocking=True)
+                refresh(blocking=True, visible_only=docked)
             except UsageError:
                 pass
 

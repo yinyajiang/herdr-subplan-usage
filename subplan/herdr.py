@@ -72,6 +72,7 @@ def start():
     session.mkdir(parents=True, exist_ok=True, mode=0o700)
     stop_file = session / "stop"
     stop_file.unlink(missing_ok=True)
+    (session / "wake").touch(mode=0o600)
     # The startup entrypoint exits immediately. Worker ownership uses an OS lock,
     # so repeated starts/attach actions never produce duplicate pollers.
     options = {"start_new_session": True} if os.name != "nt" else {
@@ -103,17 +104,20 @@ def watch():
         failures = 0
         while not (session / "stop").exists():
             try:
+                (session / "wake").unlink(missing_ok=True)
                 if not enabled():
                     break
                 config = load_config()
-                snapshot = cached()
-                if time.time() - snapshot.get("queried_at", 0) >= config["refresh_seconds"]:
-                    snapshot = refresh()
+                from .dock import ensure, is_visible
+                ensure()
+                visible = is_visible()
+                if visible:
+                    snapshot = cached()
+                    if time.time() - snapshot.get("queried_at", 0) >= config["refresh_seconds"]:
+                        snapshot = refresh(visible_only=True)
                 if (session / "stop").exists():
                     break
-                from .dock import ensure
-                ensure()
-                atomic_json(session / "health.json", {"updated_at": time.time(), "status": "running"})
+                atomic_json(session / "health.json", {"updated_at": time.time(), "status": "running" if visible else "idle"})
                 failures = 0
                 interval = min(config["refresh_seconds"], 60)
             except UsageError as error:
@@ -122,10 +126,7 @@ def watch():
                 if failures >= 3:
                     break
                 interval = 10
-            # Check stop once each second without sending extra API requests.
-            until = time.monotonic() + interval
-            while time.monotonic() < until and not (session / "stop").exists():
-                time.sleep(min(1, max(0, until - time.monotonic())))
+            wait_interval(session, interval)
         clear()
         try:
             from .dock import close_owned
@@ -133,3 +134,10 @@ def watch():
         except UsageError:
             pass
         atomic_json(session / "health.json", {"updated_at": time.time(), "status": "stopped"})
+
+
+def wait_interval(session, interval):
+    # Closing or revealing a pane wakes the worker without provider requests.
+    until = time.monotonic() + interval
+    while time.monotonic() < until and not (session / "stop").exists() and not (session / "wake").exists():
+        time.sleep(min(1, max(0, until - time.monotonic())))
