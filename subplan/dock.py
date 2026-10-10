@@ -52,6 +52,10 @@ def ensure(reveal=False):
             if reveal:
                 (session / "wake").touch(mode=0o600)
             return saved[tab]
+        # Startup, focus events and the background worker never open a pane.
+        # Only the explicit show action (prefix+u) may create a new dock.
+        if not reveal:
+            return None
         layout = next((l for l in data.get("layouts", []) if l.get("tab_id") == tab), None)
         if not layout or layout.get("zoomed"):
             # Respect the user's zoom mode; don't change it to reveal a dock.

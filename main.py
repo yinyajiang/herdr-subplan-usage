@@ -46,7 +46,10 @@ def main():
                 set_collapsed(pane, False)
         elif args.action == "ensure":
             from subplan.dock import ensure
+            from subplan.herdr import session_dir
             ensure()
+            # Focus changes only wake visibility checks; they never reveal it.
+            (session_dir() / "wake").touch(mode=0o600)
         else:
             from subplan import herdr
             getattr(herdr, args.action)()

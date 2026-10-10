@@ -15,7 +15,7 @@ Herdr 0.9+ 的常驻订阅用量窗格，Python 3.10+，无第三方依赖，无
 
 窗格跟随 Herdr 的终端布局调整宽度，高度和宽度变化会触发重绘。较窄时缩短重置时间格式，较矮时优先去掉空行和附加金额，窗口过矮会明确提示。首次创建左列最多约 42 字符宽；随后随终端尺寸按比例变化，可用 Herdr 原有分隔线调整。
 
-切换工作区 / 标签页会自动补齐用量窗格，每个标签页最多一个；插件尊重用户的终端缩放模式，不主动解除 zoom。窗格按 `r` 手动刷新，当前标签页显示用量时默认每 60 秒自动查询。
+新窗口、新工作区及新标签页默认不打开用量窗格，只有按 `prefix+u` 或执行 `show` 才会在当前标签页打开，每个标签页最多一个；插件尊重用户的终端缩放模式，不主动解除 zoom。窗格按 `r` 手动刷新，当前标签页显示用量时默认每 60 秒自动查询。
 
 标题栏提供可点击的 **设置**、**收起** 和 **关闭** 按钮。收起后保留左侧窄栏，点击 **展开** 恢复收起前的宽度；Herdr 原生分隔线的最小比例为 10%，因此窄栏宽度受此限制。窄栏也有 **×** 关闭按钮。
 
@@ -75,7 +75,7 @@ herdr plugin config-dir herdr-subplan-usage
 herdr plugin action invoke herdr-subplan-usage.show
 ```
 
-`show` 启动自动更新并建立当前标签页的停靠窗格，重复运行不会增加重复窗格。插件链接 / 启用不触发 Herdr startup hook，因此首次需要执行该动作，以后服务启动时会自动恢复。可把 [examples/herdr-keybinding.toml](examples/herdr-keybinding.toml) 合并到 Herdr 配置，使用 `prefix+u` 补齐当前标签页的用量窗格。
+`show` 启动自动更新并建立当前标签页的停靠窗格，重复运行不会增加重复窗格。插件链接 / 启用不触发 Herdr startup hook，因此首次需要执行该动作，以后服务启动时只启动更新进程，不自动打开面板。可把 [examples/herdr-keybinding.toml](examples/herdr-keybinding.toml) 合并到 Herdr 配置，使用 `prefix+u` 补齐当前标签页的用量窗格。
 
 从 0.1 升级时，移除 Herdr `[ui.sidebar.agents]` 中的 `$sp_*` 附加行；该版本不再向代理列表发布用量。停止旧的更新进程、重新链接，再执行 `show`。现有密钥配置不需要改动。
 
@@ -98,7 +98,7 @@ herdr plugin action invoke herdr-subplan-usage.refresh
 herdr plugin action invoke herdr-subplan-usage.stop
 ```
 
-`stop` 停止更新，并关闭该插件保存的自有用量窗格。工作终端和其他插件窗格不会被关闭。重新执行 `show` 恢复显示。手动关闭用量窗格后，自动更新进程会在下一轮补齐它；使用 `stop` 可以保持隐藏。
+`stop` 停止更新，并关闭该插件保存的自有用量窗格。工作终端和其他插件窗格不会被关闭。重新执行 `show` 恢复显示。通过按钮或 Herdr 原生命令关闭用量窗格后，都不会自动重新创建；需要时执行 `show` 或按 `prefix+u` 再次打开。
 
 显示时默认每 60 秒查询，可配置 30–3600 秒，四家请求并行。多个 Herdr 会话共享提供方缓存，查询通过文件锁避免重叠；每个 socket 各有一个更新进程。健康状态位于 `HERDR_PLUGIN_STATE_DIR/sessions/<socket-hash>/health.json`，暂停查询时为 `idle`。
 

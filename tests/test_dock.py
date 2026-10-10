@@ -19,6 +19,16 @@ def snapshot():
 
 
 class DockTests(unittest.TestCase):
+    def test_new_tabs_default_to_hidden_without_any_open_or_resize(self):
+        with tempfile.TemporaryDirectory() as directory, patch.dict(os.environ, {
+                "HERDR_SOCKET_PATH": "/fake.sock", "HERDR_PLUGIN_STATE_DIR": directory}):
+            with patch("subplan.dock.call", return_value={"snapshot": snapshot()}) as api:
+                self.assertIsNone(ensure())
+                self.assertIsNone(ensure())
+                self.assertEqual(api.call_args_list[0].args[0], ["api", "snapshot"])
+                self.assertTrue(all(c.args[0] == ["api", "snapshot"] for c in api.call_args_list))
+            self.assertFalse((session_dir() / "docks.json").exists())
+
     def test_close_persists_hidden_before_terminating_its_own_pane(self):
         with tempfile.TemporaryDirectory() as directory, patch.dict(os.environ, {
                 "HERDR_SOCKET_PATH": "/fake.sock", "HERDR_PLUGIN_STATE_DIR": directory}):
@@ -87,7 +97,7 @@ class DockTests(unittest.TestCase):
                 return {}
 
             with patch("subplan.dock.call", side_effect=api):
-                self.assertEqual(ensure(), "w1:p2")
+                self.assertEqual(ensure(reveal=True), "w1:p2")
                 self.assertEqual(ensure(), "w1:p2")
             opened = [c for c in commands if c[:3] == ["plugin", "pane", "open"]]
             self.assertEqual(len(opened), 1)
@@ -102,7 +112,7 @@ class DockTests(unittest.TestCase):
             data["layouts"][0]["panes"][0]["rect"]["width"] = 34
             with patch("subplan.dock.call", side_effect=[
                     {"snapshot": data}, {"plugin_pane": {"pane": {"pane_id": "w1:p2"}}}, {}]) as api:
-                ensure()
+                ensure(reveal=True)
                 opened = api.call_args_list[1].args[0]
                 self.assertEqual(opened[opened.index("--direction") + 1], "down")
                 api.assert_called_with(["pane", "swap", "--source-pane", "w1:p1", "--target-pane", "w1:p2"])
@@ -123,7 +133,7 @@ class DockTests(unittest.TestCase):
             data = snapshot()
             data["layouts"][0]["zoomed"] = True
             with patch("subplan.dock.call", return_value={"snapshot": data}) as api:
-                self.assertIsNone(ensure())
+                self.assertIsNone(ensure(reveal=True))
                 self.assertEqual(api.call_count, 1)
             (session_dir() / "stop").touch()
             with patch("subplan.dock.call") as api:

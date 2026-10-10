@@ -15,6 +15,16 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 class IntegrationTests(unittest.TestCase):
+    def test_startup_on_a_new_tab_does_not_open_a_pane_or_query_usage(self):
+        with tempfile.TemporaryDirectory() as directory, patch.dict(os.environ, {
+                "HERDR_SOCKET_PATH": "/fake/server.sock", "HERDR_PLUGIN_STATE_DIR": directory}):
+            data = {"focused_tab_id": "w1:t1", "panes": [{"pane_id": "w1:p1", "label": "shell"}], "layouts": []}
+            with patch("subplan.herdr.enabled", side_effect=[True, False]), patch("subplan.herdr.load_config", return_value={"refresh_seconds": 60}), patch("subplan.herdr.refresh") as query, patch("subplan.dock.call", return_value={"snapshot": data}) as api, patch("subplan.herdr.clear"), patch("subplan.dock.close_owned"), patch("subplan.herdr.wait_interval"):
+                watch()
+            query.assert_not_called()
+            self.assertEqual(api.call_count, 2)
+            self.assertTrue(all(call.args[0] == ["api", "snapshot"] for call in api.call_args_list))
+
     def test_worker_pauses_while_hidden_and_resumes_when_revealed(self):
         with tempfile.TemporaryDirectory() as directory, patch.dict(os.environ, {
                 "HERDR_SOCKET_PATH": "/fake/server.sock", "HERDR_PLUGIN_STATE_DIR": directory}):
