@@ -4,7 +4,7 @@ from pathlib import Path
 import tempfile
 import time
 import unittest
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 from subplan.display import percent, dock_lines, text_view
 from subplan.model import UsageError, complete
@@ -17,6 +17,20 @@ def config():
 
 
 class ServiceTests(unittest.TestCase):
+    def test_closing_during_query_discards_late_results_without_writing_cache(self):
+        with tempfile.TemporaryDirectory() as directory, patch.dict(os.environ, {"HERDR_PLUGIN_STATE_DIR": directory}):
+            previous = {"queried_at": 123, "providers": {}}
+            atomic_json(Path(directory) / "usage.json", previous)
+            disabled = {"timeout_seconds": 5, **{name: {"enabled": False} for name in PROVIDERS}}
+            with patch("subplan.popup.is_visible", side_effect=[True, False]), patch("subplan.service.load_config", return_value=disabled), patch("subplan.service.collect", return_value={"queried_at": 456, "providers": {}}):
+                self.assertEqual(refresh(blocking=True, visible_only=True), previous)
+            self.assertEqual(json.loads((Path(directory) / "usage.json").read_text()), previous)
+
+    def test_closed_display_does_not_start_queued_account_requests(self):
+        fetch = Mock()
+        collect(config(), fetcher=fetch, is_active=lambda: False)
+        fetch.assert_not_called()
+
     def test_queued_automatic_refresh_does_not_fetch_after_pane_closes(self):
         with tempfile.TemporaryDirectory() as directory, patch.dict(os.environ, {"HERDR_PLUGIN_STATE_DIR": directory}):
             previous = {"queried_at": 123, "providers": {}}

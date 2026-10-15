@@ -24,7 +24,7 @@ def failed(provider, message, previous, now):
     return result(provider, {}, status="error", message=message)
 
 
-def collect(config, previous=None, fetcher=fetch, now=None):
+def collect(config, previous=None, fetcher=fetch, now=None, is_active=None):
     previous = previous or {}
     now = time.time() if now is None else now
 
@@ -37,6 +37,9 @@ def collect(config, previous=None, fetcher=fetch, now=None):
         try:
             if not settings.get("enabled", True):
                 entry = result(provider, {}, status="disabled")
+            elif is_active is not None and not is_active():
+                # Queued accounts must not start another request after closing.
+                entry = result(provider, {}, status="unavailable")
             else:
                 if identity != provider:
                     if provider in ("zhipu", "kimi") and not settings.get("api_key"):
@@ -77,7 +80,12 @@ def refresh(blocking=False, visible_only=False):
             from .network import inherit_shell_proxy
             inherit_shell_proxy()
         previous = read_json(state / "usage.json", {})
-        snapshot = collect(config, previous.get("providers", {}))
+        snapshot = collect(config, previous.get("providers", {}),
+                           is_active=is_visible if visible_only else None)
+        if visible_only and not is_visible():
+            # A request already in flight may complete after the viewer exits;
+            # discard those results instead of updating a closed popup's cache.
+            return previous
         atomic_json(state / "usage.json", snapshot)
         return snapshot
 
