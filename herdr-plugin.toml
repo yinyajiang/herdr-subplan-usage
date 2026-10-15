@@ -1,6 +1,6 @@
 id = "herdr-subplan-usage"
 name = "Subscription Usage"
-version = "0.6.0"
+version = "0.7.0"
 min_herdr_version = "0.9.0"
 description = "Zhipu CN, Kimi CN, Codex and Cursor subscription usage"
 platforms = ["linux", "macos", "windows"]
@@ -49,5 +49,7 @@ command = ["python3", "main.py", "ensure"]
 [[panes]]
 id = "usage"
 title = "订阅用量"
-placement = "split"
-command = ["python3", "main.py", "dock-view"]
+placement = "popup"
+width = 52
+height = "85%"
+command = ["python3", "main.py", "popup-view"]

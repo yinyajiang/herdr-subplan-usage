@@ -1,4 +1,4 @@
-# Optional shortcut: ensure the persistent usage dock exists in the current tab.
+# Optional shortcut: open the usage popup without changing the terminal layout.
 [[keys.command]]
 key = "prefix+u"
 type = "plugin_action"

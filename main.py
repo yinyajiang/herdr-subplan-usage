@@ -17,7 +17,7 @@ def main():
         sys.stdout.reconfigure(encoding="utf-8")
         sys.stderr.reconfigure(encoding="utf-8")
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("action", choices=("refresh", "json", "view", "dock-view", "ensure", "show", "init-config", "start", "stop", "watch"))
+    parser.add_argument("action", choices=("refresh", "json", "view", "dock-view", "popup-view", "ensure", "show", "init-config", "start", "stop", "watch"))
     args = parser.parse_args()
     try:
         if args.action == "init-config":
@@ -34,18 +34,16 @@ def main():
                 print(json.dumps(snapshot, ensure_ascii=False))
             else:
                 print(text_view(snapshot))
-        elif args.action in ("view", "dock-view"):
+        elif args.action in ("view", "dock-view", "popup-view"):
             from subplan.viewer import view
-            view(docked=args.action == "dock-view")
+            view(docked=args.action == "dock-view", floating=args.action == "popup-view")
         elif args.action == "show":
             from subplan.herdr import start
-            from subplan.dock import ensure, pane_preferences, set_collapsed
+            from subplan.popup import ensure
             start()
-            pane = ensure(reveal=True)
-            if pane and pane_preferences(pane).get("collapsed"):
-                set_collapsed(pane, False)
+            ensure(reveal=True)
         elif args.action == "ensure":
-            from subplan.dock import ensure
+            from subplan.popup import ensure
             from subplan.herdr import session_dir
             ensure()
             # Focus changes only wake visibility checks; they never reveal it.

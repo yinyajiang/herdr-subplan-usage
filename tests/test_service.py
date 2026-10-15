@@ -21,7 +21,7 @@ class ServiceTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory, patch.dict(os.environ, {"HERDR_PLUGIN_STATE_DIR": directory}):
             previous = {"queried_at": 123, "providers": {}}
             atomic_json(Path(directory) / "usage.json", previous)
-            with patch("subplan.dock.is_visible", return_value=False), patch("subplan.service.load_config") as config_read, patch("subplan.service.collect") as fetch:
+            with patch("subplan.popup.is_visible", return_value=False), patch("subplan.service.load_config") as config_read, patch("subplan.service.collect") as fetch:
                 self.assertEqual(refresh(blocking=True, visible_only=True), previous)
                 config_read.assert_not_called()
                 fetch.assert_not_called()

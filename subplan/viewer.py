@@ -44,10 +44,17 @@ def keyboard():
             termios.tcsetattr(fd, termios.TCSADRAIN, old)
 
 
-def view(docked=False):
+def view(docked=False, floating=False):
     if not sys.stdin.isatty() or not sys.stdout.isatty():
+        if floating:
+            raise UsageError("请通过 prefix+u 打开用量弹窗")
         print(text_view(refresh()))
         return
+    managed = docked or floating
+    instance = None
+    if floating:
+        from .popup import begin
+        instance = begin()
     closed = threading.Event()
     requested = threading.Event()
 
@@ -57,7 +64,7 @@ def view(docked=False):
                 continue
             requested.clear()
             try:
-                refresh(blocking=True, visible_only=docked)
+                refresh(blocking=True, visible_only=managed)
             except UsageError:
                 pass
 
@@ -74,19 +81,19 @@ def view(docked=False):
             set_collapsed(pane, collapsed)
 
     def close_pane():
-        if pane:
+        if pane and not floating:
             from .dock import hide
             hide(pane)
         closed.set()
 
-    ui = DockUI(toggle, request_refresh, close_pane)
+    ui = DockUI(toggle, request_refresh, close_pane, floating=floating)
     decoder = InputDecoder()
 
     def updater():
         while not closed.is_set():
             try:
                 config = load_config()
-                if not docked and time.time() - cached().get("queried_at", 0) >= config["refresh_seconds"]:
+                if not managed and time.time() - cached().get("queried_at", 0) >= config["refresh_seconds"]:
                     refresh()
             except Exception:
                 pass
@@ -95,11 +102,12 @@ def view(docked=False):
     threading.Thread(target=updater, daemon=True).start()
     try:
         with keyboard() as read:
-            if docked:
+            if managed:
                 sys.stdout.write("\x1b[?1000h\x1b[?1006h\x1b[?2004h")
                 sys.stdout.flush()
             previous = None
             painted_at = 0
+            heartbeat_at = 0
             while True:
                 if closed.is_set():
                     return
@@ -110,7 +118,7 @@ def view(docked=False):
                 if docked and pane:
                     from .dock import pane_preferences
                     ui.collapsed = bool(pane_preferences(pane).get("collapsed"))
-                text = ui.frame(cached(), size.columns, size.lines) if docked else "\x1b[2J\x1b[H" + text_view(cached()).replace("\n", "\r\n")
+                text = ui.frame(cached(), size.columns, size.lines) if managed else "\x1b[2J\x1b[H" + text_view(cached()).replace("\n", "\r\n")
                 if text != previous or time.monotonic() - painted_at >= 1:
                     # The terminal popup owns these escape sequences; tokens sent
                     # to the native sidebar are plain text only.
@@ -118,9 +126,14 @@ def view(docked=False):
                     sys.stdout.flush()
                     previous = text
                     painted_at = time.monotonic()
+                if floating and time.monotonic() - heartbeat_at >= 0.5:
+                    from .popup import heartbeat
+                    if not heartbeat(instance, size):
+                        return
+                    heartbeat_at = time.monotonic()
                 events = decoder.feed(read()) + decoder.flush_escape()
                 for event in events:
-                    if docked:
+                    if managed:
                         ui.event(event)
                     elif event == ("key", "escape") or event in (("text", "q"), ("text", "Q")):
                         return
@@ -129,5 +142,8 @@ def view(docked=False):
                 time.sleep(0.03)
     finally:
         closed.set()
+        if floating:
+            from .popup import finish
+            finish(instance)
         sys.stdout.write("\x1b[?1000l\x1b[?1006l\x1b[?2004l\x1b[?25h\x1b[0m")
         sys.stdout.flush()

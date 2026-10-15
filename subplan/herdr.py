@@ -21,11 +21,13 @@ def call(arguments):
     try:
         response = subprocess.run([os.environ.get("HERDR_BIN_PATH", "herdr"), *arguments],
                                   capture_output=True, text=True, encoding="utf-8", timeout=8)
+        parsed = json.loads(response.stdout or response.stderr)
+        if parsed.get("error"):
+            if parsed["error"].get("code") == "ui_busy":
+                raise UsageError("Herdr 已有其他弹窗，请先关闭后再显示用量")
+            raise UsageError("Herdr 服务拒绝了用量显示请求")
         if response.returncode:
             raise UsageError("Herdr 服务不可用")
-        parsed = json.loads(response.stdout)
-        if parsed.get("error"):
-            raise UsageError("Herdr 服务拒绝了用量显示请求")
         return parsed.get("result", parsed)
     except (OSError, subprocess.TimeoutExpired, ValueError):
         raise UsageError("Herdr 服务不可用") from None
@@ -93,6 +95,8 @@ def stop():
     clear()
     from .dock import close_owned
     close_owned()
+    from .popup import close_owned as close_popup
+    close_popup()
 
 
 def watch():
@@ -108,7 +112,7 @@ def watch():
                 if not enabled():
                     break
                 config = load_config()
-                from .dock import ensure, is_visible
+                from .popup import ensure, is_visible
                 ensure()
                 visible = is_visible()
                 if visible:
@@ -131,6 +135,8 @@ def watch():
         try:
             from .dock import close_owned
             close_owned()
+            from .popup import close_owned as close_popup
+            close_popup()
         except UsageError:
             pass
         atomic_json(session / "health.json", {"updated_at": time.time(), "status": "stopped"})

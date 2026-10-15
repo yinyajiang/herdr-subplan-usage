@@ -22,7 +22,7 @@ class IntegrationTests(unittest.TestCase):
             with patch("subplan.herdr.enabled", side_effect=[True, False]), patch("subplan.herdr.load_config", return_value={"refresh_seconds": 60}), patch("subplan.herdr.refresh") as query, patch("subplan.dock.call", return_value={"snapshot": data}) as api, patch("subplan.herdr.clear"), patch("subplan.dock.close_owned"), patch("subplan.herdr.wait_interval"):
                 watch()
             query.assert_not_called()
-            self.assertEqual(api.call_count, 2)
+            api.assert_not_called()
             self.assertTrue(all(call.args[0] == ["api", "snapshot"] for call in api.call_args_list))
 
     def test_worker_pauses_while_hidden_and_resumes_when_revealed(self):
@@ -32,7 +32,7 @@ class IntegrationTests(unittest.TestCase):
             def record(path, value):
                 if path.name == "health.json":
                     states.append(value["status"])
-            with patch("subplan.herdr.enabled", side_effect=[True, True, True, False]), patch("subplan.herdr.load_config", return_value={"refresh_seconds": 60}), patch("subplan.herdr.cached", return_value={"queried_at": 0}), patch("subplan.herdr.refresh", return_value={}) as query, patch("subplan.dock.ensure"), patch("subplan.dock.is_visible", side_effect=[True, False, True]), patch("subplan.herdr.clear"), patch("subplan.dock.close_owned"), patch("subplan.herdr.wait_interval"), patch("subplan.herdr.atomic_json", side_effect=record):
+            with patch("subplan.herdr.enabled", side_effect=[True, True, True, False]), patch("subplan.herdr.load_config", return_value={"refresh_seconds": 60}), patch("subplan.herdr.cached", return_value={"queried_at": 0}), patch("subplan.herdr.refresh", return_value={}) as query, patch("subplan.popup.ensure"), patch("subplan.popup.is_visible", side_effect=[True, False, True]), patch("subplan.herdr.clear"), patch("subplan.dock.close_owned"), patch("subplan.herdr.wait_interval"), patch("subplan.herdr.atomic_json", side_effect=record):
                 watch()
             self.assertEqual(query.call_count, 2)
             query.assert_called_with(visible_only=True)

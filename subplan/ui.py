@@ -71,10 +71,11 @@ class InputDecoder:
 
 
 class DockUI:
-    def __init__(self, toggle, request_refresh, close=lambda: None):
+    def __init__(self, toggle, request_refresh, close=lambda: None, floating=False):
         self.toggle = toggle
         self.request_refresh = request_refresh
         self.close = close
+        self.floating = floating
         self.mode = "usage"
         self.provider = "zhipu"
         self.secret = ""
@@ -114,6 +115,8 @@ class DockUI:
                 self.draft = None
                 self.close()
             elif action == "collapse":
+                if self.floating:
+                    return
                 self.toggle(not self.collapsed)
                 self.collapsed = not self.collapsed
                 self.mode = "usage"
@@ -122,7 +125,9 @@ class DockUI:
             elif action == "settings":
                 self.show_settings()
             elif action == "back":
-                if self.mode in ("account", "choose", "delete-confirm"):
+                if self.floating and self.mode == "usage":
+                    self.close()
+                elif self.mode in ("account", "choose", "delete-confirm"):
                     self.show_settings()
                 else:
                     self.mode = "usage"
@@ -251,6 +256,8 @@ class DockUI:
                 self.request_refresh()
             elif value.lower() == "c":
                 self.activate("collapse")
+            elif self.floating and self.mode == "usage" and value.lower() == "q":
+                self.activate("close")
             elif self.mode == "settings" and value == "+":
                 self.activate("add")
             elif self.mode == "settings" and value.isdigit() and 1 <= int(value) <= len(self.page_accounts):
@@ -286,7 +293,8 @@ class DockUI:
             button(1, "[设置]" if self.mode == "usage" else "[返回]", "settings" if self.mode == "usage" else "back")
             label, close_label = ("[收起 <]", "[关闭]") if usable >= 22 else ("[<]", "[×]")
             close_x = usable - cell_width(close_label) + 1
-            button(1, label, "collapse", max(8, close_x - cell_width(label) - 1))
+            if not self.floating:
+                button(1, label, "collapse", max(8, close_x - cell_width(label) - 1))
             button(1, close_label, "close", close_x)
             if self.mode == "usage":
                 available = max(0, height - (3 if self.message else 2))

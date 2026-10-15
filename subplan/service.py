@@ -67,7 +67,7 @@ def refresh(blocking=False, visible_only=False):
         if not acquired:
             return read_json(state / "usage.json", {"providers": {}})
         if visible_only:
-            from .dock import is_visible
+            from .popup import is_visible
             # Recheck after acquiring the shared lock: the pane may have closed
             # while this request was waiting for another session's refresh.
             if not is_visible():
