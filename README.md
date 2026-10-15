@@ -23,11 +23,39 @@ Herdr 0.9+ 的常驻订阅用量窗格，Python 3.10+，无第三方依赖，无
 
 标题和按钮使用青色，Zhipu / Kimi / Codex / Cursor 分别使用蓝 / 青 / 绿 / 紫色。剩余额度正常时为绿色，低于 30% 为黄色，低于 10% 为红色；缓存和待配置为黄色。重置时间使用加粗的终端默认前景色，辅助提示使用正常正文亮度，避免暗灰文字难以辨认。采用终端调色板，不强制背景色。
 
-## 在界面中编辑 Key
+## 账号设置与多账号
 
-点击 **设置**，再点击 **Zhipu CN 编辑** 或 **Kimi CN 编辑**。输入时仅显示遮罩，支持粘贴、方向键、Backspace、Delete，以及 `Ctrl+U` 清空。已有 Key 打开时处于选中替换状态，直接输入或粘贴即可替换。
+点击 **设置**，选择一个账号即可编辑名称、Key 或登录路径。点击 **新增账号 +**，选择 Zhipu、Kimi、Codex 或 Cursor，可为同一家服务添加多个订阅账号；已有四家默认配置仍然有效，不需要迁移。
 
-点击 **保存** 或按 Enter 写入本机配置并立即刷新用量；**取消** / Esc 不改动配置。Key 不进入显示日志或用量缓存。键盘也可以按 `s` 打开设置，再按 `1` / `2` 选择提供方。
+| 账号类型 | 每个附加账号需要的配置 |
+| --- | --- |
+| Zhipu / Kimi | 该账号独立的 Coding Plan API Key |
+| Codex | 该账号的 `CODEX_HOME` 目录，例如 `~/.codex2` 或 `$HOME/.codex2` |
+| Cursor | 该账号的 Agent CLI `auth.json` 路径，或客户端登录数据库路径 |
+
+例如，已经用 `CODEX_HOME="$HOME/.codex2" codex login` 登录第二个账号后，在插件中选择 **设置 → 新增账号 + → Codex → 编辑 CODEX_HOME**，填入 `~/.codex2`，按 Enter 确定，再点击账号页的 **保存**。面板会同时显示 `Codex` 和 `Codex 2`，各自拥有独立的用量、重置时间和失败缓存。
+
+Key 输入始终遮罩，名称和路径正常显示。支持粘贴、方向键、Backspace、Delete，以及 `Ctrl+U` 清空；已有值打开时处于选中替换状态。字段编辑完成按 Enter 确定，随后点击账号页的 **保存** 才会写入本机配置并刷新。取消或返回不会保存草稿。默认账号可停用，附加账号也可删除，删除前有一次确认。Key 和登录路径不会写入用量缓存。
+
+键盘按 `s` 打开设置，`+` 新增账号，数字键选择当前页的账号。设置列表支持翻页；用量超出面板高度时，可用鼠标滚轮、↑ / ↓ 或 PageUp / PageDown 查看其它账号。
+
+也可手动编辑 `config.json`，在已有四家配置之外增加 `accounts`：
+
+```json
+{
+  "accounts": [
+    {
+      "id": "codex2",
+      "provider": "codex",
+      "name": "Codex 2",
+      "codex_home": "$HOME/.codex2",
+      "enabled": true
+    }
+  ]
+}
+```
+
+这只是需要添加到现有配置中的字段。每个附加账号 `id` 必须唯一，`provider` 为 `zhipu`、`kimi`、`codex` 或 `cursor`；`name` 是可选显示名称。默认 `codex.codex_home` 留空时使用当前进程的登录配置，显式填写后则查询指定目录。`CODEX_HOME` 仅传给对应的 Codex 子进程，并行查询不会更改其它账号或终端的环境。完整示例见 [examples/multiple-accounts.json](examples/multiple-accounts.json)。
 
 ## 安装
 
@@ -100,7 +128,7 @@ herdr plugin action invoke herdr-subplan-usage.stop
 
 `stop` 停止更新，并关闭该插件保存的自有用量窗格。工作终端和其他插件窗格不会被关闭。重新执行 `show` 恢复显示。通过按钮或 Herdr 原生命令关闭用量窗格后，都不会自动重新创建；需要时执行 `show` 或按 `prefix+u` 再次打开。
 
-显示时默认每 60 秒查询，可配置 30–3600 秒，四家请求并行。多个 Herdr 会话共享提供方缓存，查询通过文件锁避免重叠；每个 socket 各有一个更新进程。健康状态位于 `HERDR_PLUGIN_STATE_DIR/sessions/<socket-hash>/health.json`，暂停查询时为 `idle`。
+显示时默认每 60 秒查询，可配置 30–3600 秒，最多 4 个账号并发查询。多个 Herdr 会话共享提供方缓存，查询通过文件锁避免重叠；每个 socket 各有一个更新进程。健康状态位于 `HERDR_PLUGIN_STATE_DIR/sessions/<socket-hash>/health.json`，暂停查询时为 `idle`。
 
 `—` 表示没有提供额度；`重置未知` 表示没有可识别的重置时间。`缓存` / `~` 表示上次成功的数据，查询失败最多保留 15 分钟；经过重置时间的缓存百分比会失效。超过 3 分钟未更新也会标记为缓存。所有时间按运行插件机器的本地时区显示。
 

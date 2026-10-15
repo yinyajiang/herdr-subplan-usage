@@ -1,9 +1,11 @@
 from concurrent.futures import ThreadPoolExecutor
+import hashlib
+import json
 import time
 
 from .model import UsageError, result
 from .providers import fetch
-from .storage import PROVIDERS, atomic_json, load_config, lock, paths, read_json
+from .storage import account_configs, atomic_json, load_config, lock, paths, read_json
 
 
 def failed(provider, message, previous, now):
@@ -26,22 +28,37 @@ def collect(config, previous=None, fetcher=fetch, now=None):
     previous = previous or {}
     now = time.time() if now is None else now
 
-    def one(provider):
-        if not config[provider].get("enabled", True):
-            return result(provider, {}, status="disabled")
+    def one(account):
+        identity, provider, settings = account
+        signature = hashlib.sha256(json.dumps({key: value for key, value in settings.items()
+                                              if key not in ("name", "enabled")}, sort_keys=True).encode()).hexdigest()
+        old = previous.get(identity, {})
+        saved = {identity: old} if old.get("config_signature") == signature else {}
         try:
-            return fetcher(provider, config[provider], config["timeout_seconds"])
+            if not settings.get("enabled", True):
+                entry = result(provider, {}, status="disabled")
+            else:
+                if identity != provider:
+                    if provider in ("zhipu", "kimi") and not settings.get("api_key"):
+                        raise UsageError("请配置 Coding Plan Key")
+                    if provider == "codex" and not settings.get("codex_home"):
+                        raise UsageError("请配置 CODEX_HOME")
+                    if provider == "cursor" and not (settings.get("cli_auth_path") or settings.get("database_path")):
+                        raise UsageError("请配置 Cursor 登录路径")
+                entry = fetcher(provider, settings, config["timeout_seconds"])
         except UsageError as error:
-            return failed(provider, str(error), previous, now)
+            entry = failed(identity, str(error), saved, now)
         except Exception:
             # Unexpected provider schema drift must not take down the other cards,
             # and third-party error messages must never leak credentials.
-            return failed(provider, "用量响应格式已变化或查询失败", previous, now)
+            entry = failed(identity, "用量响应格式已变化或查询失败", saved, now)
+        return {**entry, "provider": provider, "account_id": identity,
+                "name": settings.get("name", ""), "config_signature": signature}
 
     with ThreadPoolExecutor(max_workers=4) as pool:
-        entries = list(pool.map(one, PROVIDERS))
-    return {"schema_version": 1, "queried_at": now,
-            "providers": {entry["provider"]: entry for entry in entries}}
+        entries = list(pool.map(one, account_configs(config)))
+    return {"schema_version": 2, "queried_at": now,
+            "providers": {entry["account_id"]: entry for entry in entries}}
 
 
 def refresh(blocking=False, visible_only=False):
@@ -56,7 +73,7 @@ def refresh(blocking=False, visible_only=False):
             if not is_visible():
                 return read_json(state / "usage.json", {"providers": {}})
         config = load_config()
-        if any(config[name].get("enabled", True) for name in PROVIDERS):
+        if any(settings.get("enabled", True) for _, _, settings in account_configs(config)):
             from .network import inherit_shell_proxy
             inherit_shell_proxy()
         previous = read_json(state / "usage.json", {})

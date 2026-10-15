@@ -1,6 +1,7 @@
 from contextlib import contextmanager
 import json
 import os
+import re
 from pathlib import Path
 import tempfile
 
@@ -47,12 +48,103 @@ def load_config():
         settings = config.setdefault(provider, {})
         if not isinstance(settings, dict):
             raise UsageError(f"{provider} 配置必须为对象")
-        if not isinstance(settings.get("enabled", True), bool):
-            raise UsageError(f"{provider}.enabled 必须为布尔值")
-        for key in ("api_key", "command", "database_path", "cli_auth_path"):
-            if key in settings and not isinstance(settings[key], str):
-                raise UsageError(f"{provider}.{key} 必须为字符串")
+        validate_settings(settings)
+    accounts = config.get("accounts", [])
+    if not isinstance(accounts, list) or len(accounts) > 32:
+        raise UsageError("accounts 必须为列表，最多添加 32 个账号")
+    used_ids = set(PROVIDERS)
+    for account in accounts:
+        if not isinstance(account, dict) or account.get("provider") not in PROVIDERS:
+            raise UsageError("账号必须指定有效的 provider")
+        identity = account.get("id")
+        if not isinstance(identity, str) or not re.fullmatch(r"[a-z][a-z0-9_-]{0,63}", identity) or identity in used_ids:
+            raise UsageError("账号 id 必须唯一，由小写字母、数字、下划线或连字符组成")
+        used_ids.add(identity)
+        validate_settings(account)
     return config
+
+
+def validate_settings(settings):
+    if not isinstance(settings.get("enabled", True), bool):
+        raise UsageError("enabled 必须为布尔值")
+    for key in ("api_key", "command", "database_path", "cli_auth_path", "codex_home", "name"):
+        if key in settings and not isinstance(settings[key], str):
+            raise UsageError(f"{key} 必须为字符串")
+    name = settings.get("name", "")
+    if len(name) > 48 or any(not char.isprintable() for char in name):
+        raise UsageError("账号名称最多 48 字，不能包含控制字符")
+    for key in ("codex_home", "database_path", "cli_auth_path", "command"):
+        if any(not char.isprintable() for char in settings.get(key, "")):
+            raise UsageError("路径不能包含控制字符")
+
+
+def account_configs(config):
+    return [(provider, provider, config[provider]) for provider in PROVIDERS] + [
+        (account["id"], account["provider"], account) for account in config.get("accounts", [])]
+
+
+def expand_account_path(value):
+    home = str(Path.home())
+    value = value.replace("${HOME}", home).replace("$HOME", home)
+    path = Path(home) / value[2:] if value.startswith(("~/", "~\\")) else Path(home) if value == "~" else Path(value).expanduser()
+    return path if path.is_absolute() else Path.home() / path
+
+
+def save_account(identity, provider, settings):
+    if provider not in PROVIDERS or not isinstance(settings, dict):
+        raise UsageError("无效的账号类型")
+    settings = dict(settings)
+    settings.pop("id", None)
+    settings.pop("provider", None)
+    validate_settings(settings)
+    if "api_key" in settings:
+        value = settings["api_key"].strip()
+        if len(value) > 4096 or any(ord(char) < 33 or ord(char) > 126 for char in value):
+            raise UsageError("Key 不能包含空格、换行或非英文字符")
+        settings["api_key"] = value
+    path = config_path()
+    with lock(path.parent / "config.lock", blocking=True) as acquired:
+        if not acquired:
+            raise UsageError("配置正在使用，请稍后保存")
+        config = load_config()
+        if identity in PROVIDERS:
+            if identity != provider:
+                raise UsageError("不能更改默认账号的提供方")
+            config[provider] = {**config[provider], **settings}
+        else:
+            if not isinstance(identity, str) or not re.fullmatch(r"[a-z][a-z0-9_-]{0,63}", identity):
+                raise UsageError("无效的账号 id")
+            accounts = config.setdefault("accounts", [])
+            old = next((a for a in accounts if a["id"] == identity), None)
+            if old:
+                if old["provider"] != provider:
+                    raise UsageError("不能更改账号的提供方")
+                old.update(settings)
+                settings = old
+            else:
+                if len(accounts) >= 32:
+                    raise UsageError("最多添加 32 个账号")
+                accounts.append({"id": identity, "provider": provider, **settings})
+        if identity != provider and settings.get("enabled", True):
+            if provider in ("zhipu", "kimi") and not settings.get("api_key"):
+                raise UsageError("请填写此账号的 Coding Plan Key")
+            if provider == "codex" and not settings.get("codex_home", "").strip():
+                raise UsageError("请填写此账号的 CODEX_HOME")
+            if provider == "cursor" and not (settings.get("cli_auth_path") or settings.get("database_path")):
+                raise UsageError("请填写此账号的 Cursor 登录路径")
+        atomic_json(path, config)
+
+
+def remove_account(identity):
+    if identity in PROVIDERS:
+        raise UsageError("默认账号可以停用，不能删除")
+    path = config_path()
+    with lock(path.parent / "config.lock", blocking=True) as acquired:
+        if not acquired:
+            raise UsageError("配置正在使用，请稍后保存")
+        config = load_config()
+        config["accounts"] = [account for account in config.get("accounts", []) if account["id"] != identity]
+        atomic_json(path, config)
 
 
 def atomic_json(path, value):

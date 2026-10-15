@@ -3,6 +3,7 @@
   "timeout_seconds": 15,
   "zhipu": { "enabled": true, "api_key": "" },
   "kimi": { "enabled": true, "api_key": "" },
-  "codex": { "enabled": true, "command": "codex" },
-  "cursor": { "enabled": true, "database_path": "", "cli_auth_path": "" }
+  "codex": { "enabled": true, "command": "codex", "codex_home": "" },
+  "cursor": { "enabled": true, "database_path": "", "cli_auth_path": "" },
+  "accounts": []
 }

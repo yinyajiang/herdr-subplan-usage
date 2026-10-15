@@ -1,0 +1,31 @@
+{
+  "refresh_seconds": 60,
+  "timeout_seconds": 15,
+  "zhipu": { "enabled": true, "api_key": "" },
+  "kimi": { "enabled": true, "api_key": "" },
+  "codex": { "enabled": true, "command": "codex" },
+  "cursor": { "enabled": true },
+  "accounts": [
+    {
+      "id": "codex2",
+      "provider": "codex",
+      "name": "Codex 2",
+      "enabled": true,
+      "codex_home": "~/.codex2"
+    },
+    {
+      "id": "kimi2",
+      "provider": "kimi",
+      "name": "Kimi CN 2",
+      "enabled": false,
+      "api_key": ""
+    },
+    {
+      "id": "cursor2",
+      "provider": "cursor",
+      "name": "Cursor 2",
+      "enabled": false,
+      "cli_auth_path": "~/.config/cursor2/auth.json"
+    }
+  ]
+}

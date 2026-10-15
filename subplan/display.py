@@ -40,10 +40,25 @@ def quota_line(name, value, stale=False, full=False):
     return f"{name} {marker}{percent(value.get('remaining_percent'))} · {reset_text(value.get('resets_at'), full)}"
 
 
+def account_label(provider, settings):
+    name = settings.get("name", "").strip()
+    base = NAMES[provider]
+    return name if name.startswith(base) else base + " · " + name if name else base
+
+
+def usage_entries(snapshot):
+    values = snapshot.get("providers", {})
+    for provider in NAMES:
+        entry = values.get(provider, {"status": "error", "message": "待刷新"})
+        yield provider, account_label(provider, entry), effective(entry)
+        for identity, entry in values.items():
+            if identity != provider and entry.get("provider") == provider:
+                yield provider, account_label(provider, entry), effective(entry)
+
+
 def text_view(snapshot):
     lines = ["订阅用量", "剩余额度 · 本地重置时间", ""]
-    for provider, label in NAMES.items():
-        entry = effective(snapshot.get("providers", {}).get(provider, {"status": "error", "message": "待刷新"}))
+    for provider, label, entry in usage_entries(snapshot):
         if entry["status"] == "disabled":
             continue
         lines.append(label + ("  [缓存]" if entry["status"] == "stale" else ""))
@@ -86,8 +101,7 @@ def clip_cells(text, width):
 def dock_lines(snapshot, width, height):
     """Compact quotas fit a narrow column; optional rows yield on short screens."""
     cards = []
-    for provider, label in NAMES.items():
-        entry = effective(snapshot.get("providers", {}).get(provider, {"status": "error", "message": "待刷新"}))
+    for provider, label, entry in usage_entries(snapshot):
         if entry["status"] == "disabled":
             continue
         stale = entry["status"] == "stale"

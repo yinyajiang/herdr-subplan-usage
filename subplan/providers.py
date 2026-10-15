@@ -16,6 +16,7 @@ from urllib.parse import quote
 from urllib.request import HTTPRedirectHandler, Request, build_opener
 
 from .model import UsageError, complete, number, timestamp, window
+from .storage import expand_account_path
 
 ZHIPU_URL = "https://open.bigmodel.cn/api/monitor/usage/quota/limit"
 KIMI_URL = "https://api.kimi.com/coding/v1/usages"
@@ -125,12 +126,19 @@ def parse_codex(data):
     return complete("codex", windows)
 
 
-def codex_usage(command, timeout):
+def codex_usage(command, timeout, codex_home=None):
     """Delegate login, keychain and token renewal to the user's actual Codex CLI."""
+    options = {}
+    if codex_home:
+        home = expand_account_path(codex_home)
+        if not home.is_dir():
+            raise UsageError("CODEX_HOME 目录不存在")
+        # Each child gets an independent environment, including parallel queries.
+        options["env"] = {**os.environ, "CODEX_HOME": str(home)}
     try:
         proc = subprocess.Popen([command, "app-server"], stdin=subprocess.PIPE,
                                 stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
-                                text=True, encoding="utf-8")
+                                text=True, encoding="utf-8", **options)
     except OSError:
         raise UsageError("未找到 Codex CLI，请配置 command") from None
     messages = queue.Queue()
@@ -241,7 +249,7 @@ def cursor_token_cookie(token, login_hint="请打开 Cursor 刷新登录"):
 
 def cursor_cli_cookie(path):
     try:
-        with Path(path).expanduser().open("r", encoding="utf-8") as source:
+        with expand_account_path(str(path)).open("r", encoding="utf-8") as source:
             text = source.read(1_048_577)
         if len(text) > 1_048_576:
             raise UsageError("Cursor CLI 登录配置过大")
@@ -277,7 +285,7 @@ def cursor_login_cookie(settings):
 
 
 def cursor_cookie(path):
-    path = Path(path).expanduser().resolve()
+    path = expand_account_path(str(path)).resolve()
     if not path.is_file():
         raise UsageError("未找到 Cursor 登录配置")
     try:
@@ -317,7 +325,7 @@ def parse_cursor(data):
 
 def fetch(provider, settings, timeout):
     if provider == "codex":
-        return codex_usage(settings.get("command") or "codex", timeout)
+        return codex_usage(settings.get("command") or "codex", timeout, settings.get("codex_home"))
     if provider == "cursor":
         cookie = cursor_login_cookie(settings)
         return parse_cursor(get_json(CURSOR_URL, {"Cookie": cookie}, timeout))
